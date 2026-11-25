@@ -79,6 +79,7 @@ import {
   type TelegramHeldSourcePreparation,
   type TelegramUpdateAdmissionOutcome,
   type TelegramUpdateFlow,
+  type TelegramUpdateRouting,
   type TelegramUpdateHandler,
   type TelegramUpdateExecutionFence,
   type TelegramUpdateHandlerRegistry,
@@ -703,6 +704,139 @@ test("Update routing extracts private human messages and edited messages separat
     },
   });
   assert.ok(editedMessage);
+});
+
+test("Update routing admits group messages that mention the bot", () => {
+  const mention = { botUsername: "mybot", botId: 42 };
+  const groupMessage = {
+    message: {
+      chat: { id: -100, type: "supergroup" },
+      from: { id: 5, is_bot: false },
+      message_id: 11,
+      text: "hey @mybot can you help?",
+    } as unknown as TelegramUpdateRouting["message"],
+  };
+  // A non-allowed user's mention is admitted once an operator is paired.
+  assert.ok(getAuthorizedTelegramMessage(groupMessage, 7, mention));
+  // A group message without a mention stays ignored for non-allowed users.
+  assert.equal(
+    getAuthorizedTelegramMessage(
+      {
+        message: {
+          chat: { id: -100, type: "supergroup" },
+          from: { id: 5, is_bot: false },
+          message_id: 12,
+          text: "no mention here",
+        } as unknown as TelegramUpdateRouting["message"],
+      },
+      7,
+      mention,
+    ),
+    undefined,
+  );
+  // Without bot identity context the mention path stays closed.
+  assert.equal(getAuthorizedTelegramMessage(groupMessage, 7), undefined);
+  // Pre-pairing (no allowed user yet) keeps first-run pairing a DM flow.
+  assert.equal(getAuthorizedTelegramMessage(groupMessage, undefined, mention), undefined);
+  // A mention entity for the bot username is also admitted.
+  assert.ok(
+    getAuthorizedTelegramMessage(
+      {
+        message: {
+          chat: { id: -100, type: "group" },
+          from: { id: 5, is_bot: false },
+          message_id: 13,
+          text: "@mybot hi",
+          entities: [{ type: "mention", offset: 0, length: 6 }],
+        } as unknown as TelegramUpdateRouting["message"],
+      },
+      7,
+      mention,
+    ),
+  );
+  // A text_mention entity for the bot id is also admitted.
+  assert.ok(
+    getAuthorizedTelegramMessage(
+      {
+        message: {
+          chat: { id: -100, type: "group" },
+          from: { id: 5, is_bot: false },
+          message_id: 14,
+          text: "please look at this",
+          entities: [{ type: "text_mention", offset: 0, length: 5, user: { id: 42, is_bot: true, username: "mybot" } }],
+        } as unknown as TelegramUpdateRouting["message"],
+      },
+      7,
+      mention,
+    ),
+  );
+  // A mention of a different bot is not admitted.
+  assert.equal(
+    getAuthorizedTelegramMessage(
+      {
+        message: {
+          chat: { id: -100, type: "group" },
+          from: { id: 5, is_bot: false },
+          message_id: 15,
+          text: "@otherbot hi",
+          entities: [{ type: "mention", offset: 0, length: 10 }],
+        } as unknown as TelegramUpdateRouting["message"],
+      },
+      7,
+      mention,
+    ),
+    undefined,
+  );
+  // Edited group messages follow the same rule.
+  assert.ok(
+    getAuthorizedTelegramEditedMessage(
+      {
+        edited_message: {
+          chat: { id: -100, type: "supergroup" },
+          from: { id: 5, is_bot: false },
+          message_id: 11,
+          text: "edited @mybot again",
+        } as unknown as TelegramUpdateRouting["message"],
+      },
+      7,
+      mention,
+    ),
+  );
+});
+
+test("Update flow answers group bot mentions with allow authorization", () => {
+  const mention = { botUsername: "mybot" };
+  const action = buildTelegramUpdateFlowAction(
+    {
+      message: {
+        chat: { id: -100, type: "supergroup" },
+        from: { id: 5, is_bot: false },
+        message_id: 11,
+        text: "hey @mybot can you help?",
+      } as unknown as TelegramUpdateRouting["message"],
+    },
+    7,
+    mention,
+  );
+  assert.equal(action.kind, "message");
+  assert.deepEqual(
+    action.kind === "message" ? action.authorization : undefined,
+    { kind: "allow" },
+  );
+  // Without a mention the same group message stays unauthorized for this user.
+  const ignored = buildTelegramUpdateFlowAction(
+    {
+      message: {
+        chat: { id: -100, type: "supergroup" },
+        from: { id: 5, is_bot: false },
+        message_id: 12,
+        text: "no mention here",
+      } as unknown as TelegramUpdateRouting["message"],
+    },
+    7,
+    mention,
+  );
+  assert.deepEqual(ignored, { kind: "ignore" });
 });
 
 test("Update routing extracts guest messages without private chat filter", () => {
