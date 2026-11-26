@@ -107,8 +107,15 @@ export interface TelegramUpdateRouting {
     guest_message?: TelegramGuestMessage;
 }
 export declare function getAuthorizedTelegramCallbackQuery(update: TelegramUpdateRouting, allowedUserId?: number): TelegramCallbackQuery | undefined;
-export declare function getAuthorizedTelegramMessage(update: TelegramUpdateRouting, allowedUserId?: number): TelegramUpdateMessage | undefined;
-export declare function getAuthorizedTelegramEditedMessage(update: TelegramUpdateRouting, allowedUserId?: number): TelegramUpdateMessage | undefined;
+/** Bot identity context used to admit group messages that mention the bot. */
+export interface TelegramBotMentionContext {
+    /** The bot's `@username` without the leading `@`. */
+    botUsername?: string;
+    /** The bot's numeric user id, when known. */
+    botId?: number;
+}
+export declare function getAuthorizedTelegramMessage(update: TelegramUpdateRouting, allowedUserId?: number, mention?: TelegramBotMentionContext): TelegramUpdateMessage | undefined;
+export declare function getAuthorizedTelegramEditedMessage(update: TelegramUpdateRouting, allowedUserId?: number, mention?: TelegramBotMentionContext): TelegramUpdateMessage | undefined;
 export declare function getAuthorizedTelegramGuestMessage(update: TelegramUpdateRouting): TelegramGuestMessage | undefined;
 export type TelegramMessageOwnershipView = TelegramBusForwardOwnership;
 export type TelegramMessageOwnershipLookup = (chatId: number, messageId: number) => TelegramMessageOwnershipView | undefined;
@@ -322,7 +329,7 @@ export type TelegramUpdateFlowAction<TReactionUpdate extends TelegramMessageReac
     };
     authorization: TelegramAuthorizationState;
 };
-export declare function buildTelegramUpdateFlowAction<TUpdate extends TelegramUpdateFlow>(update: TUpdate, allowedUserId?: number): TelegramUpdateFlowAction<NonNullable<TUpdate["message_reaction"]>, NonNullable<TUpdate["callback_query"]>, NonNullable<TUpdate["message"] | TUpdate["edited_message"]>, NonNullable<TUpdate["guest_message"]>>;
+export declare function buildTelegramUpdateFlowAction<TUpdate extends TelegramUpdateFlow>(update: TUpdate, allowedUserId?: number, mention?: TelegramBotMentionContext): TelegramUpdateFlowAction<NonNullable<TUpdate["message_reaction"]>, NonNullable<TUpdate["callback_query"]>, NonNullable<TUpdate["message"] | TUpdate["edited_message"]>, NonNullable<TUpdate["guest_message"]>>;
 export type TelegramUpdateExecutionPlan<TReactionUpdate extends TelegramMessageReactionUpdated = TelegramMessageReactionUpdated, TCallbackQuery extends TelegramCallbackQuery = TelegramCallbackQuery, TMessage extends TelegramUpdateMessage = TelegramUpdateMessage, TGuestMessage extends TelegramGuestMessage = TelegramGuestMessage> = {
     kind: "ignore";
 } | {
@@ -362,7 +369,7 @@ export type TelegramUpdateExecutionPlan<TReactionUpdate extends TelegramMessageR
     shouldDeny: boolean;
 };
 export declare function buildTelegramUpdateExecutionPlan<TReactionUpdate extends TelegramMessageReactionUpdated, TCallbackQuery extends TelegramCallbackQuery, TMessage extends TelegramUpdateMessage, TGuestMessage extends TelegramGuestMessage>(action: TelegramUpdateFlowAction<TReactionUpdate, TCallbackQuery, TMessage, TGuestMessage>): TelegramUpdateExecutionPlan<TReactionUpdate, TCallbackQuery, TMessage, TGuestMessage>;
-export declare function buildTelegramUpdateExecutionPlanFromUpdate<TUpdate extends TelegramUpdateFlow>(update: TUpdate, allowedUserId?: number): TelegramUpdateExecutionPlan<NonNullable<TUpdate["message_reaction"]>, NonNullable<TUpdate["callback_query"]>, NonNullable<TUpdate["message"] | TUpdate["edited_message"]>>;
+export declare function buildTelegramUpdateExecutionPlanFromUpdate<TUpdate extends TelegramUpdateFlow>(update: TUpdate, allowedUserId?: number, mention?: TelegramBotMentionContext): TelegramUpdateExecutionPlan<NonNullable<TUpdate["message_reaction"]>, NonNullable<TUpdate["callback_query"]>, NonNullable<TUpdate["message"] | TUpdate["edited_message"]>>;
 export type TelegramMessageOwnershipRecorderInput = Parameters<TelegramMessageOwnershipStore["record"]>[0];
 export type TelegramMessageOwnershipRecorder = (input: TelegramMessageOwnershipRecorderInput) => void;
 interface TelegramUnauthorizedReplyOptions {
@@ -408,6 +415,9 @@ export interface TelegramUpdateRuntimeDeps<TContext = unknown, TReactionUpdate e
 }
 export interface TelegramUpdateRuntimeControllerDeps<TContext = unknown, TCallbackQuery extends TelegramCallbackQuery = TelegramCallbackQuery, TMessage extends TelegramUpdateMessage = TelegramUpdateMessage> extends TelegramUpdateHandlerPorts<TContext, TCallbackQuery, TMessage> {
     getAllowedUserId: () => number | undefined;
+    /** Bot identity used to admit group messages that mention the bot. */
+    getBotUsername?: () => string | undefined;
+    getBotId?: () => number | undefined;
     foreignOwnedUpdateForwarder?: TelegramForeignOwnedUpdateForwarder<TContext, TelegramMessageReactionUpdated, TCallbackQuery, TMessage>;
     flushPendingMediaGroupMessage?: (messageId: number) => Promise<boolean>;
     flushPendingTextGroupMessage?: (messageId: number) => Promise<boolean>;
@@ -424,7 +434,7 @@ export interface TelegramUpdateRuntimeController<TContext = unknown, TUpdate ext
     handleAuthorizedReactionUpdate: (reactionUpdate: NonNullable<TUpdate["message_reaction"]>, ctx: TContext) => Promise<void>;
     handleUpdate: (update: TUpdate, ctx: TContext, execution?: TelegramUpdateExecutionFence) => Promise<void>;
 }
-export declare function executeTelegramUpdate<TUpdate extends TelegramUpdateFlow, TContext = unknown>(update: TUpdate, allowedUserId: number | undefined, deps: TelegramUpdateRuntimeDeps<TContext, NonNullable<TUpdate["message_reaction"]>, NonNullable<TUpdate["callback_query"]>, NonNullable<TUpdate["message"] | TUpdate["edited_message"]>>): Promise<void>;
+export declare function executeTelegramUpdate<TUpdate extends TelegramUpdateFlow, TContext = unknown>(update: TUpdate, allowedUserId: number | undefined, deps: TelegramUpdateRuntimeDeps<TContext, NonNullable<TUpdate["message_reaction"]>, NonNullable<TUpdate["callback_query"]>, NonNullable<TUpdate["message"] | TUpdate["edited_message"]>>, mention?: TelegramBotMentionContext): Promise<void>;
 export type TelegramPairedUpdateRuntimeControllerDeps<TContext = unknown, TUpdate extends TelegramUpdateFlow = TelegramUpdateFlow> = Omit<TelegramUpdateRuntimeControllerDeps<TContext, NonNullable<TUpdate["callback_query"]>, NonNullable<TUpdate["message"] | TUpdate["edited_message"]>>, "pairTelegramUserIfNeeded"> & TelegramUserPairingRuntimeDeps<TContext>;
 export declare function createTelegramPairedUpdateRuntime<TContext = unknown, TUpdate extends TelegramUpdateFlow = TelegramUpdateFlow>(deps: TelegramPairedUpdateRuntimeControllerDeps<TContext, TUpdate>): TelegramUpdateRuntimeController<TContext, TUpdate>;
 export declare function createTelegramUpdateRuntime<TContext = unknown, TUpdate extends TelegramUpdateFlow = TelegramUpdateFlow>(deps: TelegramUpdateRuntimeControllerDeps<TContext, NonNullable<TUpdate["callback_query"]>, NonNullable<TUpdate["message"] | TUpdate["edited_message"]>>): TelegramUpdateRuntimeController<TContext, TUpdate>;

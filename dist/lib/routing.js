@@ -8724,6 +8724,8 @@ export function createTelegramInboundRouteRuntime(deps) {
     const privateAttachmentReply = deps.privateDeliveryReplies ? createTelegramAttachmentReplyPrivacyGuard(deps.privateDeliveryReplies) : undefined;
     const runtime = Updates.createTelegramPairedUpdateRuntime({
         getAllowedUserId: deps.configStore.getAllowedUserId,
+        getBotUsername: () => deps.configStore.get().botUsername,
+        getBotId: () => deps.configStore.get().botId,
         getCurrentInstanceId: deps.getCurrentInstanceId,
         getMessageOwnership: deps.getMessageOwnership,
         getTargetOwnership: deps.getTargetOwnership,
