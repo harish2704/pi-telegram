@@ -348,6 +348,9 @@ export function createTelegramBridgeStatusRuntime(deps) {
                 activeProfileName,
                 diagnosticPaths: deps.getDiagnosticPaths?.(activeProfileName),
                 allowedUserId: config.allowedUserId,
+                groupId: config.groupId,
+                groupName: config.groupName,
+                directory: config.directory,
                 botThreadMode: botThreadMode?.threadMode,
                 botThreadModeUpdatedAtMs: botThreadMode?.updatedAtMs,
                 botThreadModeAction: botThreadMode?.lastReconcileAction,
@@ -1023,6 +1026,11 @@ function buildTelegramBridgeCompactStatusLines(state) {
             ? [`- profile: ${state.activeProfileName}`]
             : []),
         `- user: ${state.allowedUserId ?? "not paired"}`,
+        ...(state.groupId !== undefined
+            ? [
+                `- group: ${state.groupName ?? state.groupId} (${state.groupId})${state.directory ? ` → ${state.directory}` : ""}`,
+            ]
+            : []),
         ...(state.botThreadMode ? [`- thread mode: ${state.botThreadMode}`] : []),
         ...(state.busRole ? [`- role: ${state.busRole}`] : []),
         ...(state.busLifecyclePhase
@@ -1071,6 +1079,11 @@ function buildTelegramBridgeDiagnosticStatusLines(state) {
             ? [`- profile: ${state.activeProfileName}`]
             : []),
         `- allowed user: ${state.allowedUserId ?? "not paired"}`,
+        ...(state.groupId !== undefined
+            ? [
+                `- group: ${state.groupName ?? state.groupId} (${state.groupId})${state.directory ? ` → ${state.directory}` : ""}`,
+            ]
+            : []),
         ...(state.botThreadMode
             ? [
                 `- thread mode: ${state.botThreadMode}${state.botThreadModeAction ? ` reconcile=${state.botThreadModeAction}` : ""}`,

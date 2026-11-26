@@ -238,6 +238,10 @@ export interface TelegramBridgeStatusLineState {
         logs: string;
     };
     allowedUserId?: number;
+    /** Bound group of the active profile; absent means DM-only behavior. */
+    groupId?: number;
+    groupName?: string;
+    directory?: string;
     botThreadMode?: "unknown" | "enabled" | "disabled";
     botThreadModeUpdatedAtMs?: number;
     botThreadModeAction?: string;
@@ -311,6 +315,10 @@ export interface TelegramBridgeStatusConfig {
     botTokenDiagnostic?: string;
     botUsername?: string;
     allowedUserId?: number;
+    /** Bound group of the active profile; absent means DM-only behavior. */
+    groupId?: number;
+    groupName?: string;
+    directory?: string;
 }
 /** Narrow config-store view used to project resolved bot-token availability. */
 export interface TelegramBridgeStatusConfigSource {

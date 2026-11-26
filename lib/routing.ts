@@ -1600,7 +1600,10 @@ export interface TelegramInboundRouteRuntimeDeps<
   configStore: Pick<
     TelegramConfigStore,
     "get" | "getAllowedUserId" | "persistAllowedUserId" | "persist"
-  > & { set?: TelegramConfigStore["set"] };
+  > &
+    Partial<Pick<TelegramConfigStore, "getGroupBinding">> & {
+      set?: TelegramConfigStore["set"];
+    };
   callApi?: <TResponse>(
     method: string,
     body: Record<string, unknown>,
@@ -12192,6 +12195,7 @@ export function createTelegramInboundRouteRuntime<
     getAllowedUserId: deps.configStore.getAllowedUserId,
     getBotUsername: () => deps.configStore.get().botUsername,
     getBotId: () => deps.configStore.get().botId,
+    getBoundGroupChatId: () => deps.configStore.getGroupBinding?.()?.groupId,
     getCurrentInstanceId: deps.getCurrentInstanceId,
     getMessageOwnership: deps.getMessageOwnership,
     getTargetOwnership: deps.getTargetOwnership,

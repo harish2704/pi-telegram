@@ -229,6 +229,12 @@ export interface TelegramConfig {
     /** Automatic Thread title strategy shared by every profile; absent or invalid resolves to `letters`. */
     displayMode?: TelegramThreadDisplayMode;
   };
+  /** @deprecated per-profile identity belongs in profiles.default; retained for effective/legacy views */
+  groupId?: number;
+  /** @deprecated per-profile identity belongs in profiles.default; retained for effective/legacy views */
+  groupName?: string;
+  /** @deprecated per-profile identity belongs in profiles.default; retained for effective/legacy views */
+  directory?: string;
   /** Canonical bot/session profiles, including profiles.default. */
   profiles?: Record<string, TelegramBotProfile>;
 }
@@ -250,6 +256,20 @@ export interface TelegramBotProfile {
   botUsername?: string;
   botId?: number;
   allowedUserId?: number;
+  /** Optional group this profile's bot serves; absent means classic DM-only behavior. */
+  groupId?: number;
+  /** Optional group title, used to derive the workspace directory name. */
+  groupName?: string;
+  /** Optional workspace directory (absolute, or relative to the session cwd at connect). */
+  directory?: string;
+}
+
+/** The resolved per-profile group binding view. */
+export interface TelegramGroupBinding {
+  groupId: number;
+  groupName?: string;
+  /** Workspace directory path the session operates in. */
+  directory?: string;
 }
 
 interface TelegramLegacyCursorCarrier {
@@ -310,6 +330,15 @@ export interface TelegramConfigStore {
   getInboundHandlers: () => TelegramInboundHandlerConfig[] | undefined;
   getAttachmentHandlers: () => TelegramInboundHandlerConfig[] | undefined;
   getOutboundHandlers: () => TelegramOutboundHandlerConfig[] | undefined;
+  /** Group binding of the active profile; undefined means DM-only behavior. */
+  getGroupBinding: () => TelegramGroupBinding | undefined;
+  /** Update the active profile's in-memory group binding (persist with persistGroupBinding). */
+  setGroupBinding: (binding: TelegramGroupBinding | undefined) => void;
+  /** Publish the active profile's group binding atomically to telegram.json. */
+  persistGroupBinding: (
+    binding: TelegramGroupBinding | undefined,
+    assertExecutionCurrent?: () => void,
+  ) => Promise<void>;
   setAllowedUserId: (userId: number) => void;
   /** Publish an unpaired profile owner atomically; true only for the resulting exact owner. */
   persistAllowedUserId: (
@@ -538,6 +567,13 @@ function pickTelegramRootProfileFields(
     ...(config.allowedUserId !== undefined
       ? { allowedUserId: config.allowedUserId }
       : {}),
+    ...(config.groupId !== undefined ? { groupId: config.groupId } : {}),
+    ...(config.groupName !== undefined
+      ? { groupName: config.groupName }
+      : {}),
+    ...(config.directory !== undefined
+      ? { directory: config.directory }
+      : {}),
     ...(legacyCursor !== undefined ? { lastUpdateId: legacyCursor } : {}),
   };
 }
@@ -548,6 +584,9 @@ function omitTelegramRootProfileFields(config: TelegramConfig): TelegramConfig {
     botUsername: _botUsername,
     botId: _botId,
     allowedUserId: _allowedUserId,
+    groupId: _groupId,
+    groupName: _groupName,
+    directory: _directory,
     lastUpdateId: _lastUpdateId,
     ...sharedConfig
   } = config as TelegramConfig & TelegramLegacyCursorCarrier;
@@ -809,6 +848,99 @@ export function createTelegramConfigStore(
     ],
     getAttachmentHandlers: () => config.attachmentHandlers,
     getOutboundHandlers: () => config.outboundHandlers,
+    getGroupBinding: () => {
+      const effective = getEffectiveConfig();
+      return effective.groupId === undefined
+        ? undefined
+        : {
+            groupId: effective.groupId,
+            ...(effective.groupName !== undefined
+              ? { groupName: effective.groupName }
+              : {}),
+            ...(effective.directory !== undefined
+              ? { directory: effective.directory }
+              : {}),
+          };
+    },
+    setGroupBinding: (binding) => {
+      const nextConfig = getEffectiveConfig();
+      delete nextConfig.groupId;
+      delete nextConfig.groupName;
+      delete nextConfig.directory;
+      if (binding !== undefined) {
+        nextConfig.groupId = binding.groupId;
+        if (binding.groupName !== undefined)
+          nextConfig.groupName = binding.groupName;
+        if (binding.directory !== undefined)
+          nextConfig.directory = binding.directory;
+      }
+      setEffectiveConfig(nextConfig);
+    },
+    persistGroupBinding: (binding, assertExecutionCurrent) => {
+      const profileName = activeProfileName;
+      const profileKey = profileName ?? TELEGRAM_DEFAULT_PROFILE_NAME;
+      const botToken = getEffectiveConfig().botToken;
+      const assertCurrent = () => {
+        assertExecutionCurrent?.();
+        if (
+          activeProfileName !== profileName ||
+          getEffectiveConfig().botToken !== botToken
+        ) {
+          throw new Error(
+            "Telegram group binding lost its originating profile authority.",
+          );
+        }
+      };
+      assertCurrent();
+      const nextConfig = getEffectiveConfig();
+      delete nextConfig.groupId;
+      delete nextConfig.groupName;
+      delete nextConfig.directory;
+      if (binding !== undefined) {
+        nextConfig.groupId = binding.groupId;
+        if (binding.groupName !== undefined)
+          nextConfig.groupName = binding.groupName;
+        if (binding.directory !== undefined)
+          nextConfig.directory = binding.directory;
+      }
+      setEffectiveConfig(nextConfig);
+      const publication = persistQueue.then(async () => {
+        assertCurrent();
+        const merged = withTelegramFileTransaction(
+          `${configPath}.transaction`,
+          () => {
+            const latest = readTelegramConfigForTransaction(configPath) ?? {};
+            const profile = latest.profiles?.[profileKey];
+            if (!botToken || profile?.botToken !== botToken) {
+              throw new Error(
+                "Telegram group binding profile is unavailable or changed.",
+              );
+            }
+            assertCurrent();
+            const nextProfile: TelegramBotProfile = { ...profile };
+            delete nextProfile.groupId;
+            delete nextProfile.groupName;
+            delete nextProfile.directory;
+            if (binding !== undefined) {
+              nextProfile.groupId = binding.groupId;
+              if (binding.groupName !== undefined)
+                nextProfile.groupName = binding.groupName;
+              if (binding.directory !== undefined)
+                nextProfile.directory = binding.directory;
+            }
+            const next = {
+              ...latest,
+              profiles: { ...latest.profiles, [profileKey]: nextProfile },
+            };
+            writeTelegramConfigInTransaction(agentDir, configPath, next);
+            return next;
+          },
+        );
+        adoptPersistedConfig(merged, true);
+      });
+      persistQueue = publication.catch(() => undefined);
+      return publication;
+    },
     setAllowedUserId: (userId) => {
       const nextConfig = getEffectiveConfig();
       nextConfig.allowedUserId = userId;

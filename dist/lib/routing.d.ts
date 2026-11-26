@@ -181,7 +181,7 @@ export declare function createTelegramAttachmentReplyPrivacyGuard(ports: Pick<Te
 export declare function createTelegramPrivateTextReplyClassifier(ports: TelegramPrivateDeliveryReplyPorts, getCurrentInstanceId: () => string | undefined): Updates.TelegramPrivateTextReplyClassifier;
 export declare function createTelegramLocalTextInputReplyHandler(ports: TelegramPrivateDeliveryReplyPorts, getCurrentInstanceId: () => string | undefined): (message: TelegramRoutedMessage, edited: boolean) => boolean;
 export interface TelegramInboundRouteRuntimeDeps<TMessage extends TelegramRoutedMessage, TCallbackQuery extends TelegramRoutedCallbackQuery, TContext, TModel extends Model.MenuModel> {
-    configStore: Pick<TelegramConfigStore, "get" | "getAllowedUserId" | "persistAllowedUserId" | "persist"> & {
+    configStore: Pick<TelegramConfigStore, "get" | "getAllowedUserId" | "persistAllowedUserId" | "persist"> & Partial<Pick<TelegramConfigStore, "getGroupBinding">> & {
         set?: TelegramConfigStore["set"];
     };
     callApi?: <TResponse>(method: string, body: Record<string, unknown>, options?: TelegramApiCallOptions) => Promise<TResponse>;

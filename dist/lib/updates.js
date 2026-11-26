@@ -100,6 +100,21 @@ export function getAuthorizedTelegramCallbackQuery(update, allowedUserId) {
         return query;
     return query.from.id === allowedUserId ? query : undefined;
 }
+/** Whether a group message replies to one of the bot's own messages. */
+function isTelegramReplyToBotMessage(message, mention) {
+    const reply = message
+        .reply_to_message;
+    if (typeof reply !== "object" || reply === null)
+        return false;
+    const replyFrom = reply.from;
+    if (typeof replyFrom !== "object" || replyFrom === null)
+        return false;
+    const replyUser = replyFrom;
+    if (mention.botId !== undefined &&
+        replyUser.id === mention.botId)
+        return true;
+    return replyUser.is_bot === true;
+}
 /**
  * Whether a group message explicitly mentions the bot: a `mention` entity for
  * the bot's `@username`, a `text_mention` entity for the bot's user, or the
@@ -153,27 +168,42 @@ function isTelegramBotMentionMessage(message, mention) {
     }
     return usernameMatch(text) || usernameMatch(caption);
 }
-function authorizeTelegramHumanMessage(message, allowedUserId, mention) {
+function authorizeTelegramHumanMessage(message, allowedUserId, mention, boundGroup) {
     if (!message || !message.from || message.from.is_bot)
         return undefined;
     if (message.chat.type === "private")
         return message;
-    if (message.from.id === allowedUserId)
-        return message;
+    const hasBotIdentity = mention !== undefined &&
+        (mention.botUsername !== undefined || mention.botId !== undefined);
     // Group messages that mention the bot are admitted even from other users,
     // but only once a paired operator exists so first-run pairing stays a DM flow.
-    if (allowedUserId !== undefined &&
-        mention &&
-        (mention.botUsername !== undefined || mention.botId !== undefined) &&
-        isTelegramBotMentionMessage(message, mention))
+    const mentionedByHuman = allowedUserId !== undefined &&
+        hasBotIdentity &&
+        isTelegramBotMentionMessage(message, mention);
+    const repliedToBot = allowedUserId !== undefined &&
+        hasBotIdentity &&
+        boundGroup !== undefined &&
+        message.chat.id === boundGroup.chatId &&
+        isTelegramReplyToBotMessage(message, mention);
+    if (boundGroup !== undefined) {
+        // Bound-group mode: this session serves exactly one group. Group messages
+        // outside it are ignored; inside it, only bot interactions (mention or
+        // reply to the bot) are admitted, from any human member.
+        if (message.chat.id !== boundGroup.chatId)
+            return undefined;
+        return mentionedByHuman || repliedToBot ? message : undefined;
+    }
+    if (message.from.id === allowedUserId)
+        return message;
+    if (mentionedByHuman)
         return message;
     return undefined;
 }
-export function getAuthorizedTelegramMessage(update, allowedUserId, mention) {
-    return authorizeTelegramHumanMessage(update.message, allowedUserId, mention);
+export function getAuthorizedTelegramMessage(update, allowedUserId, mention, boundGroup) {
+    return authorizeTelegramHumanMessage(update.message, allowedUserId, mention, boundGroup);
 }
-export function getAuthorizedTelegramEditedMessage(update, allowedUserId, mention) {
-    return authorizeTelegramHumanMessage(update.edited_message, allowedUserId, mention);
+export function getAuthorizedTelegramEditedMessage(update, allowedUserId, mention, boundGroup) {
+    return authorizeTelegramHumanMessage(update.edited_message, allowedUserId, mention, boundGroup);
 }
 export function getAuthorizedTelegramGuestMessage(update) {
     const guestMessage = update.guest_message;
@@ -591,19 +621,22 @@ export function reportTelegramQueueAdmission(values, receipts) {
 }
 /**
  * Authorization for an admitted human message. Group messages admitted through
- * a bot mention are answered without pairing or denial; everything else keeps
- * the standard pair/allow/deny decision.
+ * a bot interaction (mention or reply to the bot) are answered without pairing
+ * or denial; everything else keeps the standard pair/allow/deny decision.
  */
-function getTelegramMessageFlowAuthorization(message, userId, allowedUserId, mention) {
-    const isGroupMention = userId !== allowedUserId &&
+function getTelegramMessageFlowAuthorization(message, userId, allowedUserId, mention, boundGroup) {
+    const isGroupInteraction = userId !== allowedUserId &&
         (message.chat.type === "group" || message.chat.type === "supergroup") &&
         mention !== undefined &&
-        isTelegramBotMentionMessage(message, mention);
-    return isGroupMention
+        (isTelegramBotMentionMessage(message, mention) ||
+            (boundGroup !== undefined &&
+                message.chat.id === boundGroup.chatId &&
+                isTelegramReplyToBotMessage(message, mention)));
+    return isGroupInteraction
         ? { kind: "allow" }
         : getTelegramAuthorizationState(userId, allowedUserId);
 }
-export function buildTelegramUpdateFlowAction(update, allowedUserId, mention) {
+export function buildTelegramUpdateFlowAction(update, allowedUserId, mention, boundGroup) {
     // Business chats are independent from bot chats even when chat/message IDs coincide.
     // Raw handlers may own that namespace; the default DM runtime has no deletion authority.
     if (update.deleted_business_messages !== undefined)
@@ -623,20 +656,20 @@ export function buildTelegramUpdateFlowAction(update, allowedUserId, mention) {
             authorization: getTelegramAuthorizationState(query.from.id, allowedUserId),
         };
     }
-    const message = getAuthorizedTelegramMessage(update, allowedUserId, mention);
+    const message = getAuthorizedTelegramMessage(update, allowedUserId, mention, boundGroup);
     if (message?.from) {
         return {
             kind: "message",
             message: message,
-            authorization: getTelegramMessageFlowAuthorization(message, message.from.id, allowedUserId, mention),
+            authorization: getTelegramMessageFlowAuthorization(message, message.from.id, allowedUserId, mention, boundGroup),
         };
     }
-    const editedMessage = getAuthorizedTelegramEditedMessage(update, allowedUserId, mention);
+    const editedMessage = getAuthorizedTelegramEditedMessage(update, allowedUserId, mention, boundGroup);
     if (editedMessage?.from) {
         return {
             kind: "edited-message",
             message: editedMessage,
-            authorization: getTelegramMessageFlowAuthorization(editedMessage, editedMessage.from.id, allowedUserId, mention),
+            authorization: getTelegramMessageFlowAuthorization(editedMessage, editedMessage.from.id, allowedUserId, mention, boundGroup),
         };
     }
     const guestMessage = getAuthorizedTelegramGuestMessage(update);
@@ -690,8 +723,8 @@ export function buildTelegramUpdateExecutionPlan(action) {
             };
     }
 }
-export function buildTelegramUpdateExecutionPlanFromUpdate(update, allowedUserId, mention) {
-    return buildTelegramUpdateExecutionPlan(buildTelegramUpdateFlowAction(update, allowedUserId, mention));
+export function buildTelegramUpdateExecutionPlanFromUpdate(update, allowedUserId, mention, boundGroup) {
+    return buildTelegramUpdateExecutionPlan(buildTelegramUpdateFlowAction(update, allowedUserId, mention, boundGroup));
 }
 /** The fleeting toast and the in-chat notice are separate copy, each written in its own form. */
 const TELEGRAM_UNAUTHORIZED_DENIAL_TOAST = "Access denied";
@@ -767,17 +800,18 @@ function getForeignTelegramTargetOwnership(target, deps) {
         ? ownership
         : undefined;
 }
-export async function executeTelegramUpdate(update, allowedUserId, deps, mention) {
+export async function executeTelegramUpdate(update, allowedUserId, deps, mention, boundGroup) {
     const runtimeDeps = update[TELEGRAM_INTERNAL_AGENT_MESSAGE]
         ? { ...deps, getMessageOwnership: undefined, handleAuthorizedTelegramDeliveryReply: undefined }
         : deps;
-    await executeTelegramUpdatePlan(buildTelegramUpdateExecutionPlanFromUpdate(update, allowedUserId, mention), runtimeDeps);
+    await executeTelegramUpdatePlan(buildTelegramUpdateExecutionPlanFromUpdate(update, allowedUserId, mention, boundGroup), runtimeDeps);
 }
 export function createTelegramPairedUpdateRuntime(deps) {
     return createTelegramUpdateRuntime({
         getAllowedUserId: deps.getAllowedUserId,
         getBotUsername: deps.getBotUsername,
         getBotId: deps.getBotId,
+        getBoundGroupChatId: deps.getBoundGroupChatId,
         getCurrentInstanceId: deps.getCurrentInstanceId,
         getMessageOwnership: deps.getMessageOwnership,
         getTargetOwnership: deps.getTargetOwnership,
@@ -846,7 +880,12 @@ export function createTelegramUpdateRuntime(deps) {
         }, {
             botUsername: deps.getBotUsername?.(),
             botId: deps.getBotId?.(),
-        }),
+        }, (() => {
+            const boundGroupChatId = deps.getBoundGroupChatId?.();
+            return boundGroupChatId === undefined
+                ? undefined
+                : { chatId: boundGroupChatId };
+        })()),
     };
 }
 export async function handleAuthorizedTelegramReactionUpdate(reactionUpdate, deps) {

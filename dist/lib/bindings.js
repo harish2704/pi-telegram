@@ -12,6 +12,7 @@ import * as Commands from "./commands.js";
 import * as Config from "./config.js";
 import * as Delivery from "./delivery.js";
 import * as GenerativeApps from "./generative-apps.js";
+import * as GroupBinding from "./group-binding.js";
 import * as Lifecycle from "./lifecycle.js";
 import * as Menu from "./menu.js";
 import * as OutboundAttachments from "./outbound-attachments.js";
@@ -599,6 +600,12 @@ export function registerTelegramCommandsAndTools({ pi, handleInternalAction, age
         sendChannelMediaMessage,
         recordRuntimeEvent,
     });
+    const startPollingWithGroupCwd = async (ctx, options) => {
+        const notice = GroupBinding.applyTelegramGroupCwdBinding(() => configStore.getGroupBinding(), ctx.cwd, recordRuntimeEvent);
+        if (notice)
+            ctx.ui?.notify?.(notice, "info");
+        return lockedPollingRuntime.start(ctx, options);
+    };
     const queueAgentConnectionContext = (connected) => {
         pi.sendMessage({
             customType: "telegram-connection-state",
@@ -671,7 +678,7 @@ export function registerTelegramCommandsAndTools({ pi, handleInternalAction, age
                 resolveBotToken: (value) => Config.resolveTelegramBotToken(value, process.env),
                 describeBotToken: (value) => Config.getTelegramBotTokenDiagnostic(value, process.env),
                 persistConfig: persistSetupConfig,
-                startPolling: lockedPollingRuntime.start,
+                startPolling: startPollingWithGroupCwd,
                 updateStatus,
                 recordRuntimeEvent,
             });
@@ -687,7 +694,7 @@ export function registerTelegramCommandsAndTools({ pi, handleInternalAction, age
         reloadConfig: configStore.load,
         hasBotToken: configStore.hasBotToken,
         getBotTokenDiagnostic: configStore.getBotTokenDiagnostic,
-        startPolling: lockedPollingRuntime.start,
+        startPolling: startPollingWithGroupCwd,
         recordConnectionEvent: (error, phase) => recordRuntimeEvent("connection", error, { phase }),
         stopPolling: stopPolling ?? lockedPollingRuntime.stop,
         getDisconnectThreadName,

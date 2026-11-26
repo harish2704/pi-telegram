@@ -327,6 +327,10 @@ export interface TelegramBridgeStatusLineState {
   activeProfileName?: string;
   diagnosticPaths?: { state: string; logs: string };
   allowedUserId?: number;
+  /** Bound group of the active profile; absent means DM-only behavior. */
+  groupId?: number;
+  groupName?: string;
+  directory?: string;
   botThreadMode?: "unknown" | "enabled" | "disabled";
   botThreadModeUpdatedAtMs?: number;
   botThreadModeAction?: string;
@@ -408,6 +412,10 @@ export interface TelegramBridgeStatusConfig {
   botTokenDiagnostic?: string;
   botUsername?: string;
   allowedUserId?: number;
+  /** Bound group of the active profile; absent means DM-only behavior. */
+  groupId?: number;
+  groupName?: string;
+  directory?: string;
 }
 
 /** Narrow config-store view used to project resolved bot-token availability. */
@@ -850,6 +858,9 @@ export function createTelegramBridgeStatusRuntime<
         activeProfileName,
         diagnosticPaths: deps.getDiagnosticPaths?.(activeProfileName),
         allowedUserId: config.allowedUserId,
+        groupId: config.groupId,
+        groupName: config.groupName,
+        directory: config.directory,
         botThreadMode: botThreadMode?.threadMode,
         botThreadModeUpdatedAtMs: botThreadMode?.updatedAtMs,
         botThreadModeAction: botThreadMode?.lastReconcileAction,
@@ -1687,6 +1698,13 @@ function buildTelegramBridgeCompactStatusLines(
       ? [`- profile: ${state.activeProfileName}`]
       : []),
     `- user: ${state.allowedUserId ?? "not paired"}`,
+    ...(state.groupId !== undefined
+      ? [
+          `- group: ${state.groupName ?? state.groupId} (${state.groupId})${
+            state.directory ? ` → ${state.directory}` : ""
+          }`,
+        ]
+      : []),
     ...(state.botThreadMode ? [`- thread mode: ${state.botThreadMode}`] : []),
     ...(state.busRole ? [`- role: ${state.busRole}`] : []),
     ...(state.busLifecyclePhase
@@ -1746,6 +1764,13 @@ function buildTelegramBridgeDiagnosticStatusLines(
       ? [`- profile: ${state.activeProfileName}`]
       : []),
     `- allowed user: ${state.allowedUserId ?? "not paired"}`,
+    ...(state.groupId !== undefined
+      ? [
+          `- group: ${state.groupName ?? state.groupId} (${state.groupId})${
+            state.directory ? ` → ${state.directory}` : ""
+          }`,
+        ]
+      : []),
     ...(state.botThreadMode
       ? [
           `- thread mode: ${state.botThreadMode}${state.botThreadModeAction ? ` reconcile=${state.botThreadModeAction}` : ""}`,

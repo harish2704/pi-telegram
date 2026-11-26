@@ -81,6 +81,12 @@ export interface TelegramConfig {
         /** Automatic Thread title strategy shared by every profile; absent or invalid resolves to `letters`. */
         displayMode?: TelegramThreadDisplayMode;
     };
+    /** @deprecated per-profile identity belongs in profiles.default; retained for effective/legacy views */
+    groupId?: number;
+    /** @deprecated per-profile identity belongs in profiles.default; retained for effective/legacy views */
+    groupName?: string;
+    /** @deprecated per-profile identity belongs in profiles.default; retained for effective/legacy views */
+    directory?: string;
     /** Canonical bot/session profiles, including profiles.default. */
     profiles?: Record<string, TelegramBotProfile>;
 }
@@ -100,6 +106,19 @@ export interface TelegramBotProfile {
     botUsername?: string;
     botId?: number;
     allowedUserId?: number;
+    /** Optional group this profile's bot serves; absent means classic DM-only behavior. */
+    groupId?: number;
+    /** Optional group title, used to derive the workspace directory name. */
+    groupName?: string;
+    /** Optional workspace directory (absolute, or relative to the session cwd at connect). */
+    directory?: string;
+}
+/** The resolved per-profile group binding view. */
+export interface TelegramGroupBinding {
+    groupId: number;
+    groupName?: string;
+    /** Workspace directory path the session operates in. */
+    directory?: string;
 }
 export declare function isValidTelegramProfileName(name: string): boolean;
 /** Only an exact profile/chat/topic allowlist entry can opt in; a chat-only entry is not a topic wildcard. */
@@ -129,6 +148,12 @@ export interface TelegramConfigStore {
     getInboundHandlers: () => TelegramInboundHandlerConfig[] | undefined;
     getAttachmentHandlers: () => TelegramInboundHandlerConfig[] | undefined;
     getOutboundHandlers: () => TelegramOutboundHandlerConfig[] | undefined;
+    /** Group binding of the active profile; undefined means DM-only behavior. */
+    getGroupBinding: () => TelegramGroupBinding | undefined;
+    /** Update the active profile's in-memory group binding (persist with persistGroupBinding). */
+    setGroupBinding: (binding: TelegramGroupBinding | undefined) => void;
+    /** Publish the active profile's group binding atomically to telegram.json. */
+    persistGroupBinding: (binding: TelegramGroupBinding | undefined, assertExecutionCurrent?: () => void) => Promise<void>;
     setAllowedUserId: (userId: number) => void;
     /** Publish an unpaired profile owner atomically; true only for the resulting exact owner. */
     persistAllowedUserId: (userId: number, assertExecutionCurrent?: () => void, commitIfOwned?: (commit: () => void) => boolean) => Promise<boolean>;

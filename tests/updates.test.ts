@@ -839,6 +839,148 @@ test("Update flow answers group bot mentions with allow authorization", () => {
   assert.deepEqual(ignored, { kind: "ignore" });
 });
 
+test("Bound-group admission answers mentions and bot replies, and ignores everything else", () => {
+  const mention = { botUsername: "mybot", botId: 42 };
+  const boundGroup = { chatId: -100 };
+  const groupMessage = (text: string, extra: Record<string, unknown> = {}) =>
+    ({
+      message: {
+        chat: { id: -100, type: "supergroup" },
+        from: { id: 5, is_bot: false },
+        message_id: 21,
+        text,
+        ...extra,
+      } as unknown as TelegramUpdateRouting["message"],
+    });
+  // A mention from a non-paired member of the bound group is admitted.
+  assert.ok(
+    getAuthorizedTelegramMessage(
+      groupMessage("@mybot hello"),
+      7,
+      mention,
+      boundGroup,
+    ),
+  );
+  // A reply to the bot's message from a non-paired member is admitted.
+  assert.ok(
+    getAuthorizedTelegramMessage(
+      groupMessage("ping", {
+        reply_to_message: {
+          message_id: 9,
+          from: { id: 42, is_bot: true },
+          chat: { id: -100, type: "supergroup" },
+          text: "bot message",
+        },
+      }),
+      7,
+      mention,
+      boundGroup,
+    ),
+  );
+  // A plain message (no mention, no bot reply) from a non-paired member is ignored.
+  assert.equal(
+    getAuthorizedTelegramMessage(groupMessage("just chatting"), 7, mention, boundGroup),
+    undefined,
+  );
+  // The paired user's plain group message is ignored too: mentions and bot
+  // replies are the only group triggers.
+  assert.equal(
+    getAuthorizedTelegramMessage(
+      {
+        message: {
+          chat: { id: -100, type: "supergroup" },
+          from: { id: 7, is_bot: false },
+          message_id: 22,
+          text: "just chatting",
+        } as unknown as TelegramUpdateRouting["message"],
+      },
+      7,
+      mention,
+      boundGroup,
+    ),
+    undefined,
+  );
+  // Messages in any other group are ignored while a group is bound, even with a mention.
+  assert.equal(
+    getAuthorizedTelegramMessage(
+      {
+        message: {
+          chat: { id: -200, type: "supergroup" },
+          from: { id: 5, is_bot: false },
+          message_id: 23,
+          text: "@mybot hello elsewhere",
+        } as unknown as TelegramUpdateRouting["message"],
+      },
+      7,
+      mention,
+      boundGroup,
+    ),
+    undefined,
+  );
+});
+
+test("Bound-group reply to the bot carries allow authorization without pairing", () => {
+  const mention = { botUsername: "mybot", botId: 42 };
+  const action = buildTelegramUpdateFlowAction(
+    {
+      message: {
+        chat: { id: -100, type: "supergroup" },
+        from: { id: 5, is_bot: false },
+        message_id: 24,
+        text: "ping",
+        reply_to_message: {
+          message_id: 9,
+          from: { id: 42, is_bot: true },
+          chat: { id: -100, type: "supergroup" },
+          text: "bot message",
+        },
+      } as unknown as TelegramUpdateRouting["message"],
+    },
+    7,
+    mention,
+    { chatId: -100 },
+  );
+  assert.equal(action.kind, "message");
+  assert.deepEqual(
+    action.kind === "message" ? action.authorization : undefined,
+    { kind: "allow" },
+  );
+});
+
+test("Without a bound group the classic behaviors stay intact", () => {
+  const mention = { botUsername: "mybot", botId: 42 };
+  // The paired user's plain group message is still admitted.
+  assert.ok(
+    getAuthorizedTelegramMessage(
+      {
+        message: {
+          chat: { id: -100, type: "supergroup" },
+          from: { id: 7, is_bot: false },
+          message_id: 25,
+          text: "just chatting",
+        } as unknown as TelegramUpdateRouting["message"],
+      },
+      7,
+      mention,
+    ),
+  );
+  // A non-paired mention is still admitted.
+  assert.ok(
+    getAuthorizedTelegramMessage(
+      {
+        message: {
+          chat: { id: -100, type: "supergroup" },
+          from: { id: 5, is_bot: false },
+          message_id: 26,
+          text: "@mybot hello",
+        } as unknown as TelegramUpdateRouting["message"],
+      },
+      7,
+      mention,
+    ),
+  );
+});
+
 test("Update routing extracts guest messages without private chat filter", () => {
   assert.equal(
     getAuthorizedTelegramGuestMessage({

@@ -15,6 +15,7 @@ import * as Commands from "./commands.ts";
 import * as Config from "./config.ts";
 import * as Delivery from "./delivery.ts";
 import * as GenerativeApps from "./generative-apps.ts";
+import * as GroupBinding from "./group-binding.ts";
 import * as Keyboard from "./keyboard.ts";
 import * as Lifecycle from "./lifecycle.ts";
 import * as Locks from "./locks.ts";
@@ -1073,6 +1074,20 @@ export function registerTelegramCommandsAndTools({
     sendChannelMediaMessage,
     recordRuntimeEvent,
   });
+  const startPollingWithGroupCwd = async (
+    ctx: Pi.ExtensionContext,
+    options?: Parameters<
+      Locks.TelegramLockedPollingRuntime<Pi.ExtensionContext>["start"]
+    >[1],
+  ) => {
+    const notice = GroupBinding.applyTelegramGroupCwdBinding(
+      () => configStore.getGroupBinding(),
+      ctx.cwd,
+      recordRuntimeEvent,
+    );
+    if (notice) ctx.ui?.notify?.(notice, "info");
+    return lockedPollingRuntime.start(ctx, options);
+  };
   const queueAgentConnectionContext = (connected: boolean): void => {
     pi.sendMessage(
       {
@@ -1152,7 +1167,7 @@ export function registerTelegramCommandsAndTools({
         describeBotToken: (value) =>
           Config.getTelegramBotTokenDiagnostic(value, process.env),
         persistConfig: persistSetupConfig,
-        startPolling: lockedPollingRuntime.start,
+        startPolling: startPollingWithGroupCwd,
         updateStatus,
         recordRuntimeEvent,
       });
@@ -1171,7 +1186,7 @@ export function registerTelegramCommandsAndTools({
     reloadConfig: configStore.load,
     hasBotToken: configStore.hasBotToken,
     getBotTokenDiagnostic: configStore.getBotTokenDiagnostic,
-    startPolling: lockedPollingRuntime.start,
+    startPolling: startPollingWithGroupCwd,
     recordConnectionEvent: (error, phase) =>
       recordRuntimeEvent("connection", error, { phase }),
     stopPolling: stopPolling ?? lockedPollingRuntime.stop,

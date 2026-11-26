@@ -17,6 +17,7 @@ import * as Commands from "./commands.ts";
 import * as Config from "./config.ts";
 import * as Delivery from "./delivery.ts";
 import * as GenerativeApps from "./generative-apps.ts";
+import * as GroupBinding from "./group-binding.ts";
 import * as Inbound from "./inbound.ts";
 import * as Journal from "./journal.ts";
 import * as Lifecycle from "./lifecycle.ts";
@@ -1923,7 +1924,7 @@ export default function (
       getSessionId: Pi.getExtensionContextSessionId,
       getWorkspaceAdmission: workspaceAdmissionRuntime.resolve,
       async startLeader(ctx, election, onAcquired): Promise<boolean> {
-        const result = await lockedPollingRuntime.start(ctx, {
+        const result = await startPollingWithGroupCwd(ctx, {
           election,
           onAcquired,
         });
@@ -2651,6 +2652,24 @@ export default function (
     recordRuntimeEvent,
     runWorkspaceOperation: telegramWorkspaceOperationRuntime.run,
   });
+  // Group-bound profiles switch the session into their workspace directory
+  // before every polling start; the cwd persists for the process lifetime.
+  const startPollingWithGroupCwd = async (
+    ctx: Pi.ExtensionContext,
+    options?: Parameters<typeof lockedPollingRuntime.start>[1],
+  ) => {
+    const sessionCwd =
+      (ctx && Pi.getExtensionContextCwd(ctx)) || process.cwd();
+    const notice = GroupBinding.applyTelegramGroupCwdBinding(
+      () => configStore.getGroupBinding(),
+      sessionCwd,
+      recordRuntimeEvent,
+    );
+    if (notice) ctx?.ui?.notify?.(notice, "info");
+    return lockedPollingRuntime.start(ctx, options);
+  };
+  const boundPollingRuntime: Locks.TelegramLockedPollingRuntime<Pi.ExtensionContext> =
+    { ...lockedPollingRuntime, start: startPollingWithGroupCwd };
   const prepareThreadPreservationOnQuit =
     Sync.createTelegramPreservedLeaderQuitHandler({
       instanceId: telegramInstanceId,
@@ -2678,7 +2697,7 @@ export default function (
       return configStore.activateProfile(profileName) && configStore.hasBotToken();
     },
     start(ctx, assertAuthority) {
-      return lockedPollingRuntime.start(ctx, { assertAuthority });
+      return startPollingWithGroupCwd(ctx, { assertAuthority });
     },
     recordError(error) {
       recordRuntimeEvent("connection", error, { phase: "resume-connect" });
@@ -2736,7 +2755,7 @@ export default function (
           suspend: textGroupRuntime.suspend,
         },
         delivery: deliveryLifecycleRuntime,
-        polling: lockedPollingRuntime,
+        polling: boundPollingRuntime,
         connection: connectionLifecycle,
         settleSessionReplacement: sessionActionAssembly.settlement.onSessionStart,
         inboundWorker: {

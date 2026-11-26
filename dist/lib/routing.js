@@ -8726,6 +8726,7 @@ export function createTelegramInboundRouteRuntime(deps) {
         getAllowedUserId: deps.configStore.getAllowedUserId,
         getBotUsername: () => deps.configStore.get().botUsername,
         getBotId: () => deps.configStore.get().botId,
+        getBoundGroupChatId: () => deps.configStore.getGroupBinding?.()?.groupId,
         getCurrentInstanceId: deps.getCurrentInstanceId,
         getMessageOwnership: deps.getMessageOwnership,
         getTargetOwnership: deps.getTargetOwnership,
